@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "guildwars-wiki": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/guildwars-mcp",
+        "run",
+        "guildwars-mcp"
+      ]
+    }
+  }
+}
