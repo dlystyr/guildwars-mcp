@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 # Create MCP server instance
 mcp_server = Server("guildwars-wiki")
+# Create a single SSE transport shared across requests
+sse_transport = SseServerTransport("/messages/")
 
 
 @mcp_server.list_tools()
@@ -118,28 +120,18 @@ async def handle_sse(request):
     """Handle SSE connection for MCP."""
     logger.info("New SSE connection")
     
-    async with SseServerTransport("/messages") as transport:
+    async with sse_transport.connect_sse(
+        request.scope,
+        request.receive,
+        request._send,
+    ) as (read_stream, write_stream):
         await mcp_server.run(
-            transport.read_stream,
-            transport.write_stream,
+            read_stream,
+            write_stream,
             mcp_server.create_initialization_options()
         )
     
     return Response()
-
-
-async def handle_messages(request):
-    """Handle incoming messages."""
-    # Get the SSE transport
-    transport = SseServerTransport("/messages")
-    
-    # Read the request body
-    body = await request.body()
-    
-    # Process through the transport
-    await transport.handle_post_message(request, body)
-    
-    return Response(status_code=200)
 
 
 # Health check endpoint
@@ -155,7 +147,7 @@ async def health_check(request):
 app = Starlette(
     routes=[
         Route("/sse", handle_sse),
-        Route("/messages", handle_messages, methods=["POST"]),
+        Mount("/messages/", app=sse_transport.handle_post_message),
         Route("/health", health_check),
     ]
 )
