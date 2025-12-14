@@ -1,4 +1,4 @@
-"""Wiki parsing utilities for Guild Wars Wiki."""
+"""Wiki parsing utilities for Guild Wars Wiki and PvX builds."""
 
 import httpx
 from bs4 import BeautifulSoup
@@ -9,6 +9,18 @@ logger = logging.getLogger(__name__)
 
 WIKI_BASE_URL = "https://wiki.guildwars.com/wiki"
 USER_AGENT = "GuildWars-MCP-Bot/1.0 (Educational; Python)"
+GWPVX_BASE_URL = "https://gwpvx.fandom.com/wiki"
+
+# Category slugs for PvE builds on GWPvX
+PVE_BUILD_CATEGORIES = {
+    "general": "Category:All_working_general_builds",
+    "farming": "Category:All_working_farming_builds",
+    "running": "Category:All_working_running_builds",
+    "quest": "Category:All_working_quest_builds",
+    "hero": "Category:All_working_hero_builds",
+    "speedclear": "Category:All_working_SC_builds",
+    "teams": "Category:All_working_PvE_team_builds",
+}
 
 
 async def fetch_wiki_page(page_name: str) -> Optional[str]:
@@ -31,6 +43,26 @@ async def fetch_wiki_page(page_name: str) -> Optional[str]:
                 
         except Exception as e:
             logger.error(f"Error fetching wiki page: {e}")
+            return None
+
+
+async def fetch_gwpvx_page(path: str) -> Optional[str]:
+    """Fetch a GWPvX page by path."""
+    url = f"{GWPVX_BASE_URL}/{path}"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(
+                url,
+                headers={"User-Agent": USER_AGENT},
+                follow_redirects=True
+            )
+            if response.status_code == 200:
+                return response.text
+            logger.warning(f"Failed to fetch {url}: {response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching GWPvX page: {e}")
             return None
 
 
@@ -195,4 +227,48 @@ def format_skill_response(skill_data: Dict[str, Any]) -> str:
     if skill_data["description"]:
         response += f"\n**Description:**\n{skill_data['description']}\n"
     
+    return response
+
+
+def parse_pve_builds(html: str) -> list[Dict[str, str]]:
+    """Parse a GWPvX category page for PvE builds."""
+    soup = BeautifulSoup(html, "lxml")
+    builds: list[Dict[str, str]] = []
+
+    # Newer Fandom layout
+    for link in soup.select("a.category-page__member-link"):
+        name = link.get_text(strip=True)
+        href = link.get("href", "")
+        if href and href.startswith("/"):
+            href = f"{GWPVX_BASE_URL}{href}"
+        builds.append({"name": name, "url": href})
+
+    # Fallback to legacy category lists
+    if not builds:
+        for link in soup.select("div#mw-pages li a"):
+            name = link.get_text(strip=True)
+            href = link.get("href", "")
+            if href and href.startswith("/"):
+                href = f"{GWPVX_BASE_URL}{href}"
+            builds.append({"name": name, "url": href})
+
+    return builds
+
+
+def format_pve_builds_response(category: str, builds: list[Dict[str, str]], limit: Optional[int] = None) -> str:
+    """Format PvE builds into a readable response."""
+    if not builds:
+        return f"No builds found for category '{category}'."
+
+    sliced = builds[:limit] if limit else builds
+    response = f"# PvE builds - {category.title()}\n\n"
+    for build in sliced:
+        name = build.get("name", "Unknown build")
+        url = build.get("url", "")
+        response += f"- {name}"
+        if url:
+            response += f" — {url}"
+        response += "\n"
+    if limit and len(builds) > limit:
+        response += f"\nShowing first {limit} builds of {len(builds)} total."
     return response

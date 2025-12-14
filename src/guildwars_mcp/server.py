@@ -16,6 +16,10 @@ from .wiki_parser import (
     format_quest_response,
     parse_skill_page,
     format_skill_response,
+    fetch_gwpvx_page,
+    parse_pve_builds,
+    format_pve_builds_response,
+    PVE_BUILD_CATEGORIES,
 )
 
 # Set up logging
@@ -60,6 +64,24 @@ async def list_tools() -> list[Tool]:
                 "required": ["skill_name"]
             }
         ),
+        Tool(
+            name="get_pve_builds",
+            description="Gets PvE build names from the GWPvX wiki by category (e.g., farming, running, hero, speedclear).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "description": "One of: general, farming, running, quest, hero, speedclear, teams"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Optional limit for number of builds to return (e.g., 10)"
+                    }
+                },
+                "required": ["category"]
+            }
+        ),
     ]
 
 
@@ -99,6 +121,32 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             skill_data = parse_skill_page(html, skill_name)
             response_text = format_skill_response(skill_data)
             
+            return [TextContent(type="text", text=response_text)]
+
+        elif name == "get_pve_builds":
+            category = arguments["category"].lower()
+            limit = arguments.get("limit")
+
+            if category not in PVE_BUILD_CATEGORIES:
+                valid = ", ".join(PVE_BUILD_CATEGORIES.keys())
+                return [TextContent(
+                    type="text",
+                    text=f"Invalid category '{category}'. Valid options: {valid}"
+                )]
+
+            logger.info(f"Fetching PvE builds for category: {category}")
+            path = PVE_BUILD_CATEGORIES[category]
+            html = await fetch_gwpvx_page(path)
+
+            if html is None:
+                return [TextContent(
+                    type="text",
+                    text=f"Could not fetch PvE builds for category '{category}'."
+                )]
+
+            builds = parse_pve_builds(html)
+            response_text = format_pve_builds_response(category, builds, limit)
+
             return [TextContent(type="text", text=response_text)]
         
         else:
